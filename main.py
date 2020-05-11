@@ -15,7 +15,7 @@ from matplotlib.ticker import LinearLocator, FormatStrFormatter
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def ddpg_train(n_episodes=500, max_t=10000, solved_score=30.0, consec_episodes=5, print_every=1,
+def ddpg_train(n_episodes=500, max_t=10000, solved_score=1, consec_episodes=2, print_every=1,
                actor_path='actor_ckpt.pth', critic_path='critic_ckpt.pth'):
     """Deep Deterministic Policy Gradient (DDPG)
 
@@ -37,7 +37,7 @@ def ddpg_train(n_episodes=500, max_t=10000, solved_score=30.0, consec_episodes=5
     scores_window = deque(maxlen=consec_episodes)  # mean scores from most recent episodes
     moving_avgs = []                               # list of moving averages
     train_mode = True
-    df = pd.DataFrame(columns=['episode', 'score', 'min', 'max', 'std', 'mean'])
+    df = pd.DataFrame(columns=['episode', 'duration', 'min', 'max', 'std', 'mean'])
 
     for i_episode in range(1, n_episodes+1):
         env_info = env.reset(train_mode=True)[brain_name]  # reset environment
@@ -69,7 +69,7 @@ def ddpg_train(n_episodes=500, max_t=10000, solved_score=30.0, consec_episodes=5
         scores_window.append(mean_scores[-1])         # save mean score to window
         moving_avgs.append(np.mean(scores_window))    # save moving average
 
-        df.loc[i_episode-1] = [i_episode] + list([scores, np.min(scores),
+        df.loc[i_episode-1] = [i_episode] + list([duration, np.min(scores),
                                                   np.max(scores),
                                                   np.std(scores),
                                                   np.mean(scores)])
@@ -151,7 +151,7 @@ else:
     from ddpg_agent import Agent
 
 
-env = UnityEnvironment(file_name='Reacher_Linux_20/Reacher.x86_64')
+env = UnityEnvironment(file_name='../UnityReacher/Reacher.exe')
 #env = UnityEnvironment(file_name='Reacher_Linux_One/Reacher.x86_64')
 # get the default brain
 brain_name = env.brain_names[0]
