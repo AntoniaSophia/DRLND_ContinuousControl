@@ -84,6 +84,7 @@ class Critic(nn.Module):
 
     def forward(self, state, action):
         """Build a critic (value) network that maps (state, action) pairs -> Q-values."""
+        # TD3 --> Using a pair of critic networks (The twin part of the title)
         xs1 = F.relu(self.bn1(self.fcs1(state)))
         x1 = torch.cat((xs1, action), dim=1)
         x1 = F.relu(self.fc2(x1))
@@ -96,6 +97,7 @@ class Critic(nn.Module):
 
     def Q1(self, state, action):
         """Build a critic (value) network that maps (state, action) pairs -> Q-values."""
+        # This is just the first critic network
         xs1 = F.relu(self.bn1(self.fcs1(state)))
         x1 = torch.cat((xs1, action), dim=1)
         x1 = F.relu(self.fc2(x1))

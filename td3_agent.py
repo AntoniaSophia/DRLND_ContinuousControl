@@ -1,6 +1,5 @@
 import numpy as np
 import random
-import copy
 from collections import namedtuple, deque
 
 from model_td3 import Actor, Critic
@@ -28,8 +27,33 @@ EPSILON_DECAY = 1e-6    # decay rate for noise process
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-
-class Agent():
+# TD3 = Twin Delayed Deep Deterministic Policy Gradient (TD3)
+# 
+# Addressing Function Approximation Error in Actor-Critic Methods
+# https://arxiv.org/abs/1802.09477
+# 
+# TD3 description is taken from:
+# https://towardsdatascience.com/td3-learning-to-run-with-ai-40dfc512f93
+# 
+# The base for implementation is taken from:
+# https://github.com/prasoonkottarathil/Twin-Delayed-DDPG-TD3-/blob/master/TD3.ipynb
+#
+# TD3 is the successor to the Deep Deterministic Policy Gradient 
+# (DDPG)(Lillicrap et al, 2016). 
+# Up until recently, DDPG was one of the most used algorithms 
+# for continuous control problems such as robotics and autonomous driving. 
+# Although DDPG is capable of providing excellent results, it has its drawbacks. 
+# Like many RL algorithms training DDPG can be unstable and heavily reliant on 
+# finding the correct hyper parameters for the current task (OpenAI Spinning Up, 2018).
+# This is caused by the algorithm continuously over estimating the Q values of 
+# the critic (value) network. These estimation errors build up over time and 
+# can lead to the agent falling into a local optima or experience catastrophic 
+# forgetting. TD3 addresses this issue by focusing on reducing the overestimation 
+# bias seen in previous algorithms. This is done with the addition of 3 key features:
+#    - Using a pair of critic networks (The twin part of the title)
+#    - Delayed updates of the actor (The delayed part)
+#    - Action noise regularisation (This part didn’t make it to the title :/ )
+class AgentTD3():
     """Interacts with and learns from the environment."""
 
     def __init__(self, state_size, action_size, random_seed):
@@ -41,12 +65,13 @@ class Agent():
                 action_size (int): dimension of each action
                 random_seed (int): random seed
         """
+
+        # Store parameters
         self.state_size = state_size
         self.action_size = action_size
         self.seed = random.seed(random_seed)
         self.epsilon = EPSILON
-        self.l1_loss = nn.L1Loss(reduce=False)
-        self.mse_element_loss = nn.MSELoss(reduce=False)
+
 
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size, random_seed).to(device)
@@ -64,18 +89,23 @@ class Agent():
         # Replay memory
         #self.memory = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, random_seed)
         self.memory = FifoMemory(BUFFER_SIZE, BATCH_SIZE)
+        self.memory_short = FifoMemory(int(BUFFER_SIZE/100), int(BATCH_SIZE))
 
     def step(self, state, action, reward, next_state, done, timestep):
         """Save experience in replay memory, and use random sample from buffer to learn."""
         # Save experience / reward
         self.memory.add(state, action, reward, next_state, done)
+        self.memory_short.add(state, action, reward, next_state, done)
 
         # Learn at defined interval, if enough samples are available in memory
-        # HINT from Udacity: learn every 20 timesteps
+        # HINT from Udacity "benchmark": learn every 20 timesteps and train 10 samples
         if len(self.memory) > BATCH_SIZE and timestep % LEARN_EVERY == 0:
             for _ in range(LEARN_NUM):
-                experiences = self.memory.sample()
-                self.learn(experiences, GAMMA)
+                experiences = self.memory.sample() 
+                experiences_short = self.memory_short.sample() 
+
+                self.learn(experiences_short, timestep % 2,GAMMA)
+                self.learn(experiences, timestep % 2 , GAMMA)
 
     def act(self, state, add_noise=True):
         """Returns actions for given state as per current policy."""
@@ -84,14 +114,21 @@ class Agent():
         with torch.no_grad():
             action = self.actor_local(state).cpu().data.numpy()
         self.actor_local.train()
+
+        # TD3 --> Action noise regularisation
         if add_noise:
             action += self.epsilon * self.noise.sample()
-        return np.clip(action, -1, 1)
+
+        # The range of noise is clipped in order to keep the target value 
+        # close to the original action.
+        clipped_action = np.clip(action, -1, 1) 
+        
+        return clipped_action
 
     def reset(self):
         self.noise.reset()
 
-    def learn(self, experiences, gamma):
+    def learn(self, experiences, delay ,gamma):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
         where:
@@ -106,9 +143,13 @@ class Agent():
         states, actions, rewards, next_states, dones = experiences
 
         # ---------------------------- update critic ---------------------------- #
+        # TD3 --> Using a pair of critic networks (The twin part of the title)
+
         # Get predicted next-state actions and Q values from target models
         actions_next = self.actor_target(next_states)
         Q_targets_next1, Q_targets_next2 = self.critic_target(next_states, actions_next)
+
+        # TD3 --> Take the minimum of both critic in order to avoid overestimation
         Q_targets_next = torch.min(Q_targets_next1, Q_targets_next2)
 
         # Compute Q targets for current states (y_i)
@@ -116,27 +157,32 @@ class Agent():
         # Compute critic loss
         Q_expected1, Q_expected2 = self.critic_local(states, actions)
 
+        # compute critic loss [HOW MUCH OFF?] as sum of both loss from target
         critic_loss = F.mse_loss(Q_expected1, Q_targets)+F.mse_loss(Q_expected2, Q_targets)
 
-        # Minimize the loss
+        # minimize loss [TRAIN]
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
         self.critic_optimizer.step()
 
         # ---------------------------- update actor ---------------------------- #
+        # TD3 --> Delayed updates of the actor (The delayed part)
         # Compute actor loss
-        actions_pred = self.actor_local(states)
+        if delay == 0:
+            actions_pred = self.actor_local(states)
 
-        actor_loss = -self.critic_local.Q1(states, actions_pred).mean()
-        # Minimize the loss
-        self.actor_optimizer.zero_grad()
-        actor_loss.backward()
-        self.actor_optimizer.step()
+            # compute loss [HOW MUCH OFF?]
+            actor_loss = -self.critic_local.Q1(states, actions_pred).mean()
+            
+            # minimize loss [TRAIN]
+            self.actor_optimizer.zero_grad()
+            actor_loss.backward()
+            self.actor_optimizer.step()
 
-        # ----------------------- update target networks ----------------------- #
-        self.soft_update(self.critic_local, self.critic_target, TAU)
-        self.soft_update(self.actor_local, self.actor_target, TAU)
+            # ----------------------- update target networks ----------------------- #
+            self.soft_update(self.critic_local, self.critic_target, TAU)
+            self.soft_update(self.actor_local, self.actor_target, TAU)
 
         # ---------------------------- update noise ---------------------------- #
         self.epsilon -= EPSILON_DECAY
@@ -188,43 +234,3 @@ class OUNoise:
         dx = self.theta * (self.mu - x) + self.sigma * np.array([random.random() for i in range(len(x))])
         self.x_previous = x + dx
         return self.x_previous
-
-
-class ReplayBuffer:
-    """Fixed-size buffer to store experience tuples."""
-
-    def __init__(self, action_size, buffer_size, batch_size, seed):
-        """Initialize a ReplayBuffer object.
-        Params
-        ======
-                buffer_size (int): maximum size of buffer
-                batch_size (int): size of each training batch
-        """
-        self.action_size = action_size
-        self.memory = deque(maxlen=buffer_size)  # internal memory (deque)
-        self.batch_size = batch_size
-        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
-        self.seed = random.seed(seed)
-
-    def add(self, state, action, reward, next_state, done):
-        """Add a new experience to memory."""
-        e = self.experience(state, action, reward, next_state, done)
-        self.memory.append(e)
-
-    def sample(self):
-        """Randomly sample a batch of experiences from memory."""
-        experiences = random.sample(self.memory, k=self.batch_size)
-
-        states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
-        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(device)
-        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
-        next_states = torch.from_numpy(
-            np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
-        dones = torch.from_numpy(
-            np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
-
-        return (states, actions, rewards, next_states, dones)
-
-    def __len__(self):
-        """Return the current size of internal memory."""
-        return len(self.memory)
