@@ -18,10 +18,9 @@ from td3_agent import AgentTD3
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def train_reacher(brain_name, n_episodes=500, max_t=10000, solved_score=1, consec_episodes=2, print_every=1,
+def train_reacher(env, brain_name, n_episodes=500, max_t=10000, solved_score=1, consec_episodes=2, print_every=1,
                actor_path='actor_ckpt.pth', critic_path='critic_ckpt.pth'):
-    """Deep Deterministic Policy Gradient (DDPG)
-
+    """
     Params
     ======
         n_episodes (int)      : maximum number of training episodes
@@ -137,11 +136,8 @@ def train_reacher(brain_name, n_episodes=500, max_t=10000, solved_score=1, conse
         if moving_avgs[-1] >= solved_score and i_episode >= consec_episodes:
             print('\nEnvironment SOLVED in {} episodes!\tMoving Average ={:.1f} over last {} episodes'.format(
                 i_episode-consec_episodes, moving_avgs[-1], consec_episodes))
-            if train_mode:
-                torch.save(agent.actor_local.state_dict(), actor_path)
-                torch.save(agent.critic_local.state_dict(), critic_path)
-            break
-
+            torch.save(agent.actor_local.state_dict(), actor_path)
+            torch.save(agent.critic_local.state_dict(), critic_path)
     return df
 
 
@@ -160,37 +156,92 @@ def plot_minmax(df):
     plt.show()
 
 
-def test_reacher(n_episodes=100):
-    if torch.cuda.is_available():
-        agent.actor_local.load_state_dict(torch.load('trained/actor_ckpt.pth'))
-        agent.critic_local.load_state_dict(torch.load('trained/critic_ckpt.pth'))
-    else:
-        agent.actor_local.load_state_dict(torch.load('trained/actor_ckpt.pth',
-                                                     map_location=lambda storage, loc: storage))
-        agent.critic_local.load_state_dict(torch.load('trained/critic_ckpt.pth',
-                                                      map_location=lambda storage, loc: storage))
+def load_reacher(env, brain_name, actor_path, critic_path):
 
+    # reset the environment
+    env_info = env.reset(train_mode=False)[brain_name]
+    brain = env.brains[brain_name]
+
+    # number of agents
+    num_agents = len(env_info.agents)
+    print('Number of agents:', num_agents)
+
+    # size of each action
+    action_size = brain.vector_action_space_size
+    print('Size of each action:', action_size)
+
+    # examine the state space
+    states = env_info.vector_observations
+    state_size = states.shape[1]
+
+    agent = AgentTD3(state_size=state_size, action_size=action_size,
+                     random_seed=1)
+
+    if torch.cuda.is_available():
+        agent.actor_local.load_state_dict(torch.load(actor_path))
+        agent.critic_local.load_state_dict(torch.load(critic_path))
+    else:
+        agent.actor_local.load_state_dict(torch.load(actor_path,
+                                                     map_location=lambda storage, loc: storage))
+        agent.critic_local.load_state_dict(torch.load(critic_path,
+                                                      map_location=lambda storage, loc: storage))
+    return agent
+
+
+def test_reacher(env, brain_name, agent,  runs=100):
+    # set overall sum of scores to 0
     mean_scores = []
 
-    for i_episode in range(1, n_episodes+1):
-        env_info = env.reset(train_mode=True)[brain_name]     # reset the environment
-        states = env_info.vector_observations                  # get the current state (for each agent)
-        scores = np.zeros(num_agents)                          # initialize the score (for each agent)
+    # now execute up to maximum runs episodes
+    for i_episode in range(runs):
+
+        # 1.Step: reset the environment - set the train_mode to False !!
+        env_info = env.reset(train_mode=True)[brain_name]     
+
+        # 2. Step: get the current state 
+        states = env_info.vector_observations                  
+        
+        # 3.Step: set the score of the current episode to 0
+        num_agents = len(env_info.agents)
+        scores = np.zeros(num_agents)                          
+        
         start_time = time.time()
+        
+        # 4.Step: while episode has not ended (done = True) repeat
         while True:
-            actions = agent.act(states, add_noise=False)         # select an action
-            env_info = env.step(actions)[brain_name]           # send all actions to tne environment
-            next_states = env_info.vector_observations         # get next state (for each agent)
-            rewards = env_info.rewards                         # get reward (for each agent)
-            dones = env_info.local_done                        # see if episode finished
-            scores += env_info.rewards                         # update the score (for each agent)
-            states = next_states                               # roll over states to next time step
-            if np.any(dones):                                  # exit loop if episode finished
+            # 5.Step: Calculate the next action from agent with epsilon 0 
+            #         add_noise = False because we are not in training mode !
+            actions = agent.act(states, add_noise=False)         
+
+            # 6.Step: Tell the environment about this action and get result
+            env_info = env.step(actions)[brain_name]           
+
+            # 7.Step: now let's get the state observation from observation
+            next_states = env_info.vector_observations         
+
+            # 8.Step: now let's get the reward observation from observation
+            rewards = env_info.rewards                        
+
+            # 9.Step: now let's get the done observation from observation
+            dones = env_info.local_done                         
+            
+            # 10.Step: Add the reward of the last action-state result  
+            scores += env_info.rewards                         
+            
+            # 11.Step: Continue while-loop with next_state as current state
+            states = next_states                                           
+
+            # 12.Step: in case of end of episode print the result and break loop 
+            if np.any(dones):                                 
                 break
-        duration = time.time() - start_time
+
+        # 13.Step: Finally append the score of last epsisode to the overall scores
         mean_scores.append(np.mean(scores))
+
+        duration = time.time() - start_time
         print('\rEpisode {} ({} sec)\tMean: {:.1f}'.format(
             i_episode, round(duration), mean_scores[-1]))
+
 
     return mean_scores
 
@@ -215,44 +266,33 @@ threshold = 38.0
 max_episodes = 150
 max_t = 10000
 
-print_every=1
-consec_episodes=2
+print_every = 1
+consec_episodes = 2
 
 # Set this variable to "True" in case you want to retrain your agent
-train = True
-
-# Set the hyperparameters for training
-eps_start=1.0
-eps_end=0.02
-eps_decay=0.995
-seed = 999
-
-
+train = False
 
 # Set the filename for storage of the trained model
 actor_filename = "actor_ckpt.pth"
 critic_filename = "critic_ckpt.pth"
 
 if train:
-    df = train_reacher(brain_name, max_episodes, max_t, threshold, consec_episodes, print_every,  \
+    df = train_reacher(env, brain_name, max_episodes, max_t, threshold, consec_episodes, print_every,  \
                        actor_filename, critic_filename)
 
     plot_minmax(df)
 
-# Finally test the agent 
+if train == False:
+    # load a previously stored solution
+    agent = load_reacher(env, brain_name, actor_filename , critic_filename)
 
-#agent = load_banana_collector(env, brain_name, filename) # First load the trained agent
-#n_episode_run = 10                      # Execute 10 runs
-#scores = test_banana_collector(env, brain_name, agent , n_episode_run)  # run!
-#print("Mean score over {} episodes: {}".format(n_episode_run, np.mean(scores)))
+    # execute 100 consecutive tests and calculate the average score
+    runs = 100
+    scores = test_reacher(env, brain_name, agent,  runs)
+    
+    print('Total score (averaged over agents) for 100 episodes: {}'.format(np.mean(scores)))
 
-
-#agent = Agent(state_size=state_size, action_size=action_size, random_seed=1)
-#scores = ddpg_test()
-#print('Total score (averaged over agents) for 100 episodes: {}'.format(np.mean(scores)))
 
 
 # When finished, you can close the environment.
 env.close()
-
-
