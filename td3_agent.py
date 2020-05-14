@@ -87,8 +87,8 @@ class AgentTD3():
         self.noise = OUNoise(action_size, random_seed)
 
         # Replay memory
-        #self.memory = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, random_seed)
         self.memory = FifoMemory(BUFFER_SIZE, BATCH_SIZE)
+        # Short term memory contains only 1/100 of the complete memory and the most recent samples
         self.memory_short = FifoMemory(int(BUFFER_SIZE/100), int(BATCH_SIZE))
 
     def step(self, state, action, reward, next_state, done, timestep):
@@ -104,6 +104,7 @@ class AgentTD3():
                 experiences = self.memory.sample() 
                 experiences_short = self.memory_short.sample() 
 
+                # delay update of the policy and only update every 2nd training
                 self.learn(experiences_short, timestep % 2,GAMMA)
                 self.learn(experiences, timestep % 2 , GAMMA)
 
@@ -167,7 +168,7 @@ class AgentTD3():
         self.critic_optimizer.step()
 
         # ---------------------------- update actor ---------------------------- #
-        # TD3 --> Delayed updates of the actor (The delayed part)
+        # TD3 --> Delayed updates of the actor = policy (The delayed part)
         # Compute actor loss
         if delay == 0:
             actions_pred = self.actor_local(states)
