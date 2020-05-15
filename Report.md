@@ -207,16 +207,6 @@ As mentioned the Critic contains two networks which conquer the potential over e
         self.fc6 = nn.Linear(fc2_units, 1)`
 
 
-
-
-I simply used the model which was also used in the lesson 2 (DQN) - basically it is identical.
-
-![](docs/network.png) 
-
-I played around with the dimensions of the hidden layers, but it seems that using `size(fc1)=Size(fc2) = 64` (both hidden layer dimensions = 64) is the optimal setting.
-
-All other variants - either using less or increasing - finish the task only with more episodes.
-
 ## TD3 Agent
 
 In `td3_agent.py` I've followed the implementation from the original TD3 paper, including the hints from Udacity "benchmark" to start a learning process only every 20 timesteps, but 10 iterations at each learning phase. The learning step is also delayed according to TD3 which means that the policy is only modified every second learning steps. The the implementation of the learning step function:
@@ -270,7 +260,12 @@ and as additional features I've implemented the following additions:
 
 ### Used parameters
 
-In the next section I'm going to explain all the parameters I have chosen.
+In the next section I'm going to explain all the parameters I have chosen. 
+The reason to chose the parameters exactly like this is basically a mix of different sources:
+- https://arxiv.org/pdf/1802.09477.pdf
+- https://towardsdatascience.com/td3-learning-to-run-with-ai-40dfc512f93
+- https://github.com/ShangtongZhang/DeepRL/blob/master/deep_rl/component/random_process.py
+- Try & Error with the batch size 
 
   - `EPSILON = 1.0` - starting with maximum exploration (when using epsilon-greedy policy) is always a good advise....
   - `EPSILON_DECAY = 1e-6` - I took this parameter from the paper XYZ
@@ -299,13 +294,21 @@ In the next section I'm going to explain all the parameters I have chosen.
 
 ## Discussion
 
-Finally I was able to solve this task for the `threshold = 38.0` in ?? episodes
+Finally I was able to solve this task for the `threshold = 38.0` in 53 episodes. The threshold 30.0 was already reached after episode 22.
+The average reward during testing step after 100 episodes is 39.28
+
+    Total score (averaged over agents) for 100 episodes: 39.28725412186142
+
+See the score table over episodes:
+
+![](docs/TD3_Result.png) 
+
+
 The trained model can be found at:
-- https://github.com/AntoniaSophia/DRLND_ContinuousControl/blob/master/actor_ckpt.pth
-- https://github.com/AntoniaSophia/DRLND_ContinuousControl/blob/master/critic_ckpt.pth
+- https://github.com/AntoniaSophia/DRLND_ContinuousControl/blob/master/actor_ckpt_best.pth
+- https://github.com/AntoniaSophia/DRLND_ContinuousControl/blob/master/critic_ckpt_best.pth
     
   
-![](docs/TD3_Result.png) 
 
 Most obviously the TD3 is really fast and stable - I guess much faster and more stable compared to all other known algorithms (even the DDPG). At least this is what is mentioned in the literature.
 
@@ -313,17 +316,18 @@ I'm not sure which effect my additions (using FIFO memory and an additional shor
 
 Basically the data structure of the regular replay memory and FIFO is almost similar, just the order of the elements is different. As already indicated in the first project "BananaCollector" my result could indicate that using a FIFO is more efficient, but in fact just running a few tests in one project is definitely not enough to conclude on that. I admit, I was just playing around with some ideas I found in the Internet....
 
-As I recognized the calculations in Jupyter notebook are different compared to execution on command line. Executed on command line the task was even solved in ?? episodes - even much faster! I have no idea why it is like that, for your reference I've added the corresponding calculations in my Anaconda command line:
-[in case someone could tell me the reason of this behavior I would be grateful]
-
+As I recognized the calculations in Jupyter notebook is different compared to execution on command line. Executed on command line the task was even solved in 18 episodes - even much faster! I've observed the same behavior in the first project BananaCollector, but just thought it was randomly because the initial weights might have been different. Let's observe this further in future - but in case someone knows the reason of this behavior I would be grateful!
 
 
 Further potential improvements:
-- ? 
+- Tuning the batch size and size of the short term memory
+- Targeted tests in order to find out whether the idea of the short term memory is really better or just in this special case (or even just on my laptop)
+- Further tuning of the hyperparameters, e.g. by evolution algorithms
 
 
 ## Final remark - famous last works... ;-)
-As I'm completely new to deep reinforcement learning, I was really really glad when the first project came and I could start some coding. There was so much of theory and new terms and somehow I felt like having to learn 20 years of research within a few weeks. I was very happy that I could all bits and pieces together and solve the task now in much less than 50 episodes. Compared to the first project I think I have understoop almost every detail of the solution  
+As I'm completely new to deep reinforcement learning, I was really really glad when the first project came and I could start some coding. There was so much of theory and new terms and somehow I felt like having to learn 20 years of research within a few weeks. 
+I was hoping the amount of theory is getting a bit less, but the opposite was the case. Despite even more theory and input I felt it was easier to digest for me. I was very happy that I could all bits and pieces together and solve the task now in 22 episodes. Compared to the first project I think I have understood almost 80% of the details.  
 
-All in all it was a lot of fun, I really learned a lot of new things and enjoyed!
+All in all, again it was a lot of fun, I really learned a lot of new things and enjoyed!
 
